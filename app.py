@@ -19,7 +19,7 @@ from tinyfish import TinyFish
 # ---------------------------------------------------------------------------
 load_dotenv()  # reads TINYFISH_API_KEY and GEMINI_API_KEY from .env
 
-st.set_page_config(page_title="JobVentra", page_icon="🧭", layout="wide")
+st.set_page_config(page_title="JobVentra", page_icon=str(Path(__file__).parent / "assets" / "favicon.png"), layout="wide")
 
 tf_client = TinyFish()
 
@@ -30,8 +30,8 @@ GROQ_MODELS = [m.strip() for m in os.getenv("GROQ_MODEL", "llama-3.3-70b-versati
 GEMINI_MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", "gemini-3.8-flash").split(",") if m.strip()]
 RETRYABLE = {429, 500, 502, 503, 504}
 
-BLUE = "#2F6FED"
-GREEN = "#16A34A"
+BLUE = "#1F5C47"
+GREEN = "#2E8B57"
 AMBER = "#D97706"
 RED = "#DC2626"
 
@@ -56,8 +56,9 @@ CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-html, body, [class*="css"], .stMarkdown, button, input, textarea {
-  font-family: 'Plus Jakarta Sans', sans-serif !important;
+html, body, [class*="css"], .stMarkdown, .stMarkdown p, h1, h2, h3, h4, h5, h6, button, button p, input, textarea,
+[data-baseweb="tab"], [data-testid="stCaptionContainer"], .stMarkdown div, .stMarkdown span, .stMarkdown li {
+  font-family: 'Plus Jakarta Sans', 'Source Sans Pro', sans-serif !important;
 }
 #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDeployButton"] { visibility: hidden; height: 0; }
 header[data-testid="stHeader"] { background: transparent; }
@@ -65,13 +66,13 @@ header[data-testid="stHeader"] { background: transparent; }
 
 /* ---------- Home hero ---------- */
 .home-hero {
-  background: linear-gradient(135deg, #2F6FED 0%, #3AA6D9 55%, #34C38F 100%);
-  border-radius: 28px; padding: 38px 40px 34px; color: #fff; text-align: center;
-  box-shadow: 0 16px 40px rgba(47,111,237,.25); margin-bottom: 20px;
+  background: linear-gradient(120deg, #0B3226 0%, #1F5C47 55%, #4F8A68 100%);
+  border-radius: 24px; padding: 38px 40px 34px; color: #fff; text-align: center;
+  box-shadow: 0 16px 40px rgba(14,59,45,.28); margin-bottom: 20px;
 }
 .home-hero .eyebrow { font-weight: 700; letter-spacing: .18em; font-size: .85rem; opacity: .85; text-transform: uppercase; }
 .home-hero h1 {
-  margin: 4px 0 6px; font-size: 4.2rem; font-weight: 800; letter-spacing: -.03em; color: #fff; line-height: 1.05;
+  margin: 4px 0 6px; font-size: 3.8rem; font-weight: 800; letter-spacing: -.03em; color: #fff; line-height: 1.05;
 }
 .home-hero p { margin: 0 auto; max-width: 640px; font-size: 1.15rem; opacity: .96; color: #fff; }
 .pill {
@@ -81,78 +82,85 @@ header[data-testid="stHeader"] { background: transparent; }
 
 /* ---------- Feature cards on home ---------- */
 .feature {
-  background: #fff; border: 1px solid #E3EAF8; border-radius: 22px 22px 0 0; padding: 22px 22px 16px;
-  text-align: center; box-shadow: 0 6px 18px rgba(15,23,42,.05); border-bottom: none;
+  background: #fff; border: 1px solid #E3EBDD; border-radius: 18px 18px 0 0; padding: 26px 22px 18px; min-height: 278px; box-sizing: border-box;
+  text-align: center; box-shadow: 0 6px 18px rgba(15,40,30,.06); border-bottom: none;
 }
-.feature .icon { display: flex; justify-content: center; }
+.feature .icon { display: flex; justify-content: center; margin-bottom: 4px; }
+.badge-icon { width: 68px; height: 68px; border-radius: 20px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #1F5C47, #5E9473); box-shadow: 0 8px 18px rgba(14,59,45,.28); }
+.icon-tint { background: #EEF5EF; border-radius: 22px; padding: 10px; }
+.home-foot { text-align: center; color: #8FA095; font-size: .85rem; margin-top: 22px; }
 .feature .icon img { height: 84px; width: 84px; object-fit: contain; }
 .feature .icon .ph {
-  height: 84px; width: 84px; border-radius: 50%; background: linear-gradient(135deg, #2F6FED, #34C38F);
+  height: 84px; width: 84px; border-radius: 50%; background: linear-gradient(135deg, #1F5C47, #8DBB9B);
   color: #fff; font-size: 2.2rem; font-weight: 800; display: flex; align-items: center; justify-content: center;
 }
-.feature h3 { margin: 8px 0 6px; font-size: 1.35rem; font-weight: 800; color: #0F172A; }
-.feature p { margin: 0; color: #475569; line-height: 1.5; font-size: .98rem; }
+.feature h3 { margin: 8px 0 6px; font-size: 1.35rem; font-weight: 800; color: #12261D; }
+.feature p { margin: 0; color: #4A5B50; line-height: 1.5; font-size: .98rem; }
 
 /* Big nav buttons (keys start with nav_) */
-[class*="st-key-nav_"] button {
-  width: 100%; height: 58px; font-size: 1.1rem !important; font-weight: 800 !important;
-  border-radius: 0 0 22px 22px !important; border: 1px solid #2F6FED !important;
-  background: #2F6FED !important; color: #fff !important; transition: all .15s ease;
+[class*="st-key-nav_"], [class*="st-key-nav_"] [data-testid="stButton"], [class*="st-key-nav_"] .stButton {
+  width: 100% !important; display: block !important;
 }
-[class*="st-key-nav_"] button:hover { background: #1F57C9 !important; transform: translateY(-2px); }
-[class*="st-key-nav_"] button p { font-size: 1.12rem !important; font-weight: 800 !important; }
+[class*="st-key-nav_"] button {
+  width: 100% !important; height: 56px; font-size: 1.05rem !important; font-weight: 700 !important;
+  border-radius: 0 0 18px 18px !important; border: 1px solid #1F5C47 !important;
+  background: #1F5C47 !important; color: #fff !important; transition: all .15s ease;
+}
+[class*="st-key-nav_"] button:hover { background: #174A39 !important; transform: translateY(-2px); }
+[class*="st-key-nav_"] button p { font-size: 1.05rem !important; font-weight: 700 !important; }
 
 /* ---------- Sub page top bar ---------- */
-.topbar-brand { font-size: 1.5rem; font-weight: 800; color: #2F6FED; text-align: right; padding-top: 6px; }
-.page-title { font-size: 1.9rem; font-weight: 800; margin: 6px 0 4px; color: #0F172A; }
-.page-sub { color: #64748B; margin-bottom: 18px; }
+.topbar-brand { font-size: 1.5rem; font-weight: 800; color: #1F5C47; text-align: right; padding-top: 6px; }
+.page-title { font-size: 1.9rem; font-weight: 800; margin: 6px 0 4px; color: #12261D; }
+.page-sub { color: #66766B; margin-bottom: 18px; }
 
 /* ---------- Cards ---------- */
 .card {
-  background: #fff; border: 1px solid #E3EAF8; border-radius: 18px; padding: 20px 22px;
-  box-shadow: 0 4px 14px rgba(15,23,42,.04); margin-bottom: 16px;
+  background: #fff; border: 1px solid #E3EBDD; border-radius: 18px; padding: 20px 22px;
+  box-shadow: 0 4px 14px rgba(15,40,30,.05); margin-bottom: 16px;
 }
-.card h4 { margin: 0 0 10px; font-size: 1rem; font-weight: 700; color: #0F172A; }
+.card h4 { margin: 0 0 10px; font-size: 1rem; font-weight: 700; color: #12261D; }
 .card ul { margin: 0; padding-left: 18px; }
-.card li { margin-bottom: 6px; line-height: 1.45; color: #334155; }
-.card p { color: #334155; line-height: 1.55; margin: 0; }
+.card li { margin-bottom: 6px; line-height: 1.45; color: #33453B; }
+.card p { color: #33453B; line-height: 1.55; margin: 0; }
 
-.tile { background:#fff; border:1px solid #E3EAF8; border-radius:16px; padding:16px 18px; height:100%; }
-.tile .label { font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; color:#64748B; font-weight:700; }
-.tile .value { font-size:1.15rem; font-weight:700; color:#0F172A; margin-top:4px; }
+.tile { background:#fff; border:1px solid #E3EBDD; border-radius:16px; padding:16px 18px; height:100%; }
+.tile .label { font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; color:#66766B; font-weight:700; }
+.tile .value { font-size:1.15rem; font-weight:700; color:#12261D; margin-top:4px; }
 
 .chip { display:inline-block; padding:6px 12px; border-radius:999px; font-size:.85rem; font-weight:600; margin:0 6px 8px 0; }
-.chip.blue  { background:#E8F0FF; color:#2F6FED; }
+.chip.blue  { background:#E6F0E9; color:#1F5C47; }
 .chip.red   { background:#FEE9E9; color:#B91C1C; }
 .chip.green { background:#E3F7EA; color:#15803D; }
 
 .badge { display:inline-block; padding:8px 18px; border-radius:999px; font-weight:800; font-size:1rem; }
 
-.timeline { border-left: 3px solid #D6E2FB; margin: 6px 0 4px 8px; padding-left: 18px; }
-.timeline .step { position: relative; margin-bottom: 10px; color:#334155; font-size:.92rem; }
+.timeline { border-left: 3px solid #CFE0D2; margin: 6px 0 4px 8px; padding-left: 18px; }
+.timeline .step { position: relative; margin-bottom: 10px; color:#33453B; font-size:.92rem; }
 .timeline .step::before {
   content:''; position:absolute; left:-27px; top:5px; width:11px; height:11px;
-  background:#2F6FED; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 2px #D6E2FB;
+  background:#1F5C47; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 2px #CFE0D2;
 }
 
 .stButton > button { border-radius: 12px; font-weight: 700; padding: .55rem 1.2rem; }
 .stTextInput input, .stTextArea textarea { border-radius: 12px !important; }
-a { color: #2F6FED; }
+a { color: #1F5C47; }
 
 .bd { margin-bottom: 14px; }
-.bd-top { display: flex; justify-content: space-between; font-weight: 700; font-size: .92rem; color: #0F172A; }
-.bar { height: 8px; background: #E5EAF3; border-radius: 999px; margin: 6px 0 4px; overflow: hidden; }
+.bd-top { display: flex; justify-content: space-between; font-weight: 700; font-size: .92rem; color: #12261D; }
+.bar { height: 8px; background: #E4E9DD; border-radius: 999px; margin: 6px 0 4px; overflow: hidden; }
 .bar .fill { height: 100%; border-radius: 999px; }
-.bd-ev { font-size: .86rem; color: #64748B; line-height: 1.4; }
+.bd-ev { font-size: .86rem; color: #66766B; line-height: 1.4; }
 .capnote { background: #FFF3DC; color: #92400E; border-radius: 12px; padding: 10px 14px; font-size: .9rem; font-weight: 600; margin-bottom: 14px; }
 
-.q { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #EEF2FA; align-items: flex-start; }
+.q { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #EDF1E6; align-items: flex-start; }
 .q:last-child { border-bottom: none; }
-.q-num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #E8F0FF; color: #2F6FED; font-weight: 800;
+.q-num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #E6F0E9; color: #1F5C47; font-weight: 800;
   font-size: .8rem; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
-.q-text { color: #0F172A; font-weight: 600; line-height: 1.45; margin-bottom: 6px; }
+.q-text { color: #12261D; font-weight: 600; line-height: 1.45; margin-bottom: 6px; }
 .tag { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
-.tag.topic { background: #E8F0FF; color: #2F6FED; }
+.tag.topic { background: #E6F0E9; color: #1F5C47; }
 .tag.easy { background: #E3F7EA; color: #15803D; }
 .tag.medium { background: #FFF3DC; color: #B45309; }
 .tag.hard { background: #FEE9E9; color: #B91C1C; }
@@ -160,41 +168,41 @@ a { color: #2F6FED; }
 .bar.big { height: 12px; }
 
 .rounds { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 22px; margin-bottom: 8px; }
-.round { position: relative; background: #F4F7FF; border: 1px solid #E3EAF8; border-radius: 16px; padding: 14px; }
-.round:not(:last-child)::after { content: "→"; position: absolute; right: -19px; top: 18px; color: #2F6FED; font-weight: 800; }
-.rnum { width: 28px; height: 28px; border-radius: 50%; background: #2F6FED; color: #fff; font-weight: 800; font-size: .85rem;
+.round { position: relative; background: #F3F7F0; border: 1px solid #E3EBDD; border-radius: 16px; padding: 14px; }
+.round:not(:last-child)::after { content: "→"; position: absolute; right: -19px; top: 18px; color: #1F5C47; font-weight: 800; }
+.rnum { width: 28px; height: 28px; border-radius: 50%; background: #1F5C47; color: #fff; font-weight: 800; font-size: .85rem;
   display: flex; align-items: center; justify-content: center; margin-bottom: 8px; }
-.rname { font-weight: 800; color: #0F172A; margin-bottom: 8px; }
-.rnote { font-size: .84rem; color: #64748B; line-height: 1.4; margin-top: 4px; }
+.rname { font-weight: 800; color: #12261D; margin-bottom: 8px; }
+.rnote { font-size: .84rem; color: #66766B; line-height: 1.4; margin-top: 4px; }
 .tips { margin-top: 14px; }
-.tips b { color: #0F172A; font-size: .95rem; }
+.tips b { color: #12261D; font-size: .95rem; }
 
-.tldr { font-size: 1.08rem; color: #475569; line-height: 1.5; margin: -2px 0 16px; max-width: 820px; }
-.timeline .when { color: #2F6FED; font-weight: 800; font-size: .8rem; margin-right: 8px; }
+.tldr { font-size: 1.08rem; color: #4A5B50; line-height: 1.5; margin: -2px 0 16px; max-width: 820px; }
+.timeline .when { color: #1F5C47; font-weight: 800; font-size: .8rem; margin-right: 8px; }
 
 /* ---------- Colour accents ---------- */
-.card.accent-blue,   .tile.accent-blue   { border-top: 4px solid #2F6FED; }
-.card.accent-teal,   .tile.accent-teal   { border-top: 4px solid #3AA6D9; }
-.card.accent-green,  .tile.accent-green  { border-top: 4px solid #34C38F; }
-.card.accent-amber,  .tile.accent-amber  { border-top: 4px solid #F59E0B; }
-.card.accent-violet, .tile.accent-violet { border-top: 4px solid #8B5CF6; }
-.card.accent-slate,  .tile.accent-slate  { border-top: 4px solid #94A3B8; }
+.card.accent-blue,   .tile.accent-blue   { border-top: 4px solid #1F5C47; }
+.card.accent-teal,   .tile.accent-teal   { border-top: 4px solid #5E9473; }
+.card.accent-green,  .tile.accent-green  { border-top: 4px solid #8DBB9B; }
+.card.accent-amber,  .tile.accent-amber  { border-top: 4px solid #C0933F; }
+.card.accent-violet, .tile.accent-violet { border-top: 4px solid #C0933F; }
+.card.accent-slate,  .tile.accent-slate  { border-top: 4px solid #8FA095; }
 
 .co-head {
-  background: linear-gradient(135deg, #EAF1FF 0%, #E6F7F1 100%); border: 1px solid #DCE7FB;
-  border-left: 6px solid #2F6FED; border-radius: 20px; padding: 22px 26px; margin-bottom: 16px;
+  background: linear-gradient(135deg, #E9F2EA 0%, #F7F0DA 100%); border: 1px solid #D5E3D6;
+  border-left: 6px solid #1F5C47; border-radius: 20px; padding: 22px 26px; margin-bottom: 16px;
 }
-.co-name { font-size: 2.1rem; font-weight: 800; color: #0F172A; letter-spacing: -.02em; line-height: 1.15; }
-.co-tldr { margin-top: 6px; color: #475569; font-size: 1.05rem; line-height: 1.5; max-width: 820px; }
+.co-name { font-size: 2.1rem; font-weight: 800; color: #12261D; letter-spacing: -.02em; line-height: 1.15; }
+.co-tldr { margin-top: 6px; color: #4A5B50; font-size: 1.05rem; line-height: 1.5; max-width: 820px; }
 
 /* ---------- Pill tabs ---------- */
 .stTabs [data-baseweb="tab-list"] { gap: 8px; border-bottom: none; }
 .stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
 .stTabs [data-baseweb="tab"] {
-  background: #fff; border: 1px solid #E3EAF8; border-radius: 999px; padding: 8px 18px; height: auto;
+  background: #fff; border: 1px solid #E3EBDD; border-radius: 999px; padding: 8px 18px; height: auto;
 }
-.stTabs [data-baseweb="tab"] p { font-weight: 700; color: #334155; }
-.stTabs [data-baseweb="tab"][aria-selected="true"] { background: #2F6FED; border-color: #2F6FED; }
+.stTabs [data-baseweb="tab"] p { font-weight: 700; color: #33453B; }
+.stTabs [data-baseweb="tab"][aria-selected="true"] { background: #1F5C47; border-color: #1F5C47; }
 .stTabs [data-baseweb="tab"][aria-selected="true"] p { color: #fff; }
 
 /* ---------- Motion ---------- */
@@ -231,9 +239,56 @@ a { color: #2F6FED; }
 .timeline .step:nth-child(n+5) { animation-delay: .6s; }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- Logo ---------- */
+.brand-logo { text-align: center; margin: 2px 0 14px; animation: fadeDown .6s ease both; }
+.brand-logo img { width: 480px; max-width: 100%; height: auto; image-rendering: auto; }
+.topbar-logo { text-align: right; padding-top: 2px; }
+.topbar-logo img { height: 64px; width: auto; max-width: none; }
+.home-hero.nologo p { font-size: 1.3rem; max-width: 700px; margin-top: 10px; }
+.home-hero.nologo { padding: 30px 40px 32px; }
+
+/* ---------- Brand: serif headings + gold accents (matches logo) ---------- */
+.home-hero h1, .page-title, .co-name, .feature h3, .topbar-brand, .rname, .card h4,
+.stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+  font-family: 'Lora', Georgia, 'Times New Roman', serif !important; letter-spacing: -.01em;
+}
+.home-hero h1 { font-weight: 700; letter-spacing: -.02em; }
+.home-hero .eyebrow { color: #E3B867; opacity: 1; }
+.home-hero .eyebrow::before, .home-hero .eyebrow::after { content: "✦"; margin: 0 10px; color: #C0933F; }
+.page-title { color: #0E3B2D; }
+.page-title { display: flex; align-items: center; gap: 14px; }
+.page-title .badge-icon { width: 52px; height: 52px; border-radius: 15px; flex: 0 0 52px; }
+.page-title .badge-icon svg { width: 26px; height: 26px; }
+.co-head { border-left-color: #C0933F; }
+.stApp { background-color: #FBF7EA; }
+
+/* ---------- Sample postings box ---------- */
+.st-key-samples {
+  background: #fff; border: 1px solid #E3EBDD; border-top: 4px solid #C0933F; border-radius: 18px;
+  padding: 16px 20px 8px; margin-bottom: 18px; box-shadow: 0 4px 14px rgba(15,40,30,.05);
+}
+.samples-title { font-family: 'Lora', Georgia, serif; font-weight: 700; font-size: 1.05rem; color: #12261D; }
+.samples-sub { color: #66766B; font-size: .9rem; margin: 2px 0 12px; }
+.st-key-s_scam button { border-color: #F3C2C2 !important; color: #B91C1C !important; background: #FFF6F6 !important; }
+.st-key-s_scam button:hover { border-color: #DC2626 !important; background: #FEE9E9 !important; }
+.st-key-s_legit button { border-color: #BFDCC8 !important; color: #15803D !important; background: #F4FBF6 !important; }
+.st-key-s_legit button:hover { border-color: #2E8B57 !important; background: #E3F7EA !important; }
+
+/* hide the anchor-link icons Streamlit adds beside headings */
+[data-testid="stHeaderActionElements"], [data-testid="stHeadingActionElements"],
+[data-testid="stMarkdownContainer"] :is(h1,h2,h3,h4,h5,h6) a[href^="#"],
+[data-testid="stMarkdownContainer"] :is(h1,h2,h3,h4,h5,h6) .stHeadingActionElements,
+.stMarkdown :is(h1,h2,h3,h4,h5,h6) a.anchor-link { display: none !important; }
 </style>
 """
+try:
+    from jobventra_fonts import FONT_CSS  # embedded font, works offline and on any host
+except ImportError:
+    FONT_CSS = ""
 st.markdown(CSS, unsafe_allow_html=True)
+if FONT_CSS:
+    st.markdown(f"<style>{FONT_CSS}</style>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +311,34 @@ def img_tag(name: str, alt: str = "") -> str:
             data = base64.b64encode(p.read_bytes()).decode()
             return f'<img src="data:{mime};base64,{data}" alt="{esc(alt)}">'
     return f'<div class="ph">{esc(alt[:1].upper())}</div>'
+
+
+ICON_MODE = "brand"  # "brand" = matching built-in icons, "custom" = your own images from assets/
+_SV = ('<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#fff" '
+       'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{}</svg>')
+BRAND_ICONS = {
+    "dossier": _SV.format('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>'
+                          '<path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>'),
+    "verify": _SV.format('<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 '
+                         '4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>'),
+    "prep": _SV.format('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>'),
+}
+
+
+# One accent per feature: (base, light, dark). Change these to recolour the home cards.
+ACCENTS = {
+    "dossier": ("#1F5C47", "#5E9473", "#174A39"),  # forest green
+    "verify":  ("#B8862F", "#E3B867", "#9A6F22"),  # gold
+    "prep":    ("#2A7F7B", "#6FB5AF", "#1F6360"),  # teal
+}
+
+
+def feature_icon(key: str, title: str) -> str:
+    if ICON_MODE == "custom":
+        return f'<div class="icon-tint">{img_tag(key, title)}</div>'
+    base, light, _ = ACCENTS[key]
+    return (f'<div class="badge-icon" style="background:linear-gradient(135deg,{base},{light});'
+            f'box-shadow:0 8px 18px {base}47">{BRAND_ICONS[key]}</div>')
 
 
 def card(title: str, body_html: str, accent: str = "") -> str:
@@ -335,7 +418,7 @@ def q_html(qs) -> str:
     return rows or "<p>Nothing found.</p>"
 
 
-ROUND_COLORS = ["#2F6FED", "#3AA6D9", "#34C38F", "#F59E0B", "#8B5CF6"]
+ROUND_COLORS = ["#1F5C47", "#5E9473", "#8DBB9B", "#C0933F", "#C0933F"]
 
 
 def rounds_html(rounds: list[dict], tips: list[str]) -> str:
@@ -397,13 +480,13 @@ def gauge_svg(score: int) -> str:
     filled = circ * score / 100
     return (
         '<svg width="190" height="190" viewBox="0 0 140 140" xmlns="http://www.w3.org/2000/svg">'
-        '<circle cx="70" cy="70" r="54" fill="none" stroke="#E5EAF3" stroke-width="12"/>'
+        '<circle cx="70" cy="70" r="54" fill="none" stroke="#E4E9DD" stroke-width="12"/>'
         f'<circle cx="70" cy="70" r="54" fill="none" stroke="{color}" stroke-width="12" '
         f'stroke-linecap="round" stroke-dasharray="{filled:.1f} {circ}" transform="rotate(-90 70 70)">'
         f'<animate attributeName="stroke-dasharray" from="0 {circ}" to="{filled:.1f} {circ}" '
         'dur="1.2s" fill="freeze" calcMode="spline" keySplines="0.2 0.8 0.2 1" keyTimes="0;1"/></circle>'
-        f'<text x="70" y="72" text-anchor="middle" font-size="34" font-weight="800" fill="#0F172A">{score}</text>'
-        '<text x="70" y="92" text-anchor="middle" font-size="11" fill="#64748B">out of 100</text>'
+        f'<text x="70" y="72" text-anchor="middle" font-size="34" font-weight="800" fill="#12261D">{score}</text>'
+        '<text x="70" y="92" text-anchor="middle" font-size="11" fill="#66766B">out of 100</text>'
         "</svg>"
     )
 
@@ -920,23 +1003,35 @@ def load_sample(sample: dict):
 # ---------------------------------------------------------------------------
 # Shared sub-page header
 # ---------------------------------------------------------------------------
-def subpage_header(title: str, subtitle: str):
+def subpage_header(title: str, subtitle: str, key: str = "", side=None):
     c1, c2 = st.columns([1, 3])
     c1.button("← Back to home", on_click=go, args=("home",), key="back_home")
-    c2.markdown('<div class="topbar-brand">JobVentra</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="page-title">{esc(title)}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="page-sub">{esc(subtitle)}</div>', unsafe_allow_html=True)
+    c2.markdown(f'<div class="topbar-logo">{img_tag("logo_small", "JobVentra")}</div>', unsafe_allow_html=True)
+    icon = feature_icon(key, title) if key in ACCENTS else ""
+
+    def _title_block():
+        st.markdown(f'<div class="page-title">{icon}<span>{esc(title)}</span></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="page-sub">{esc(subtitle)}</div>', unsafe_allow_html=True)
+
+    if side is None:
+        _title_block()
+    else:
+        left, right = st.columns([1.35, 1], gap="large")
+        with left:
+            _title_block()
+        with right:
+            side()
 
 
 # ---------------------------------------------------------------------------
 # PAGE: Home
 # ---------------------------------------------------------------------------
 def page_home():
+    st.markdown(f'<div class="brand-logo">{img_tag("logo", "JobVentra")}</div>', unsafe_allow_html=True)
     st.markdown(
         """
-<div class="home-hero">
+<div class="home-hero nologo">
   <div class="eyebrow">Placement intelligence, live from the web</div>
-  <h1>JobVentra</h1>
   <p>Is this offer real? Know the company, the risks and the questions before you apply.</p>
 </div>
 """,
@@ -951,21 +1046,32 @@ def page_home():
         ("prep", "Interview Prep",
          "Questions and talking points tailored to the company's latest news and your own profile."),
     ]
+    st.markdown(
+        "<style>" + "".join(
+            f'.st-key-nav_{k} button {{ background:{b} !important; border-color:{b} !important; }}'
+            f'.st-key-nav_{k} button:hover {{ background:{d} !important; border-color:{d} !important; }}'
+            for k, (b, _l, d) in ACCENTS.items()) + "</style>",
+        unsafe_allow_html=True,
+    )
     cols = st.columns(3, gap="large")
     for i, (col, (key, title, desc)) in enumerate(zip(cols, features)):
         with col:
             st.markdown(
-                f'<div class="feature" style="animation-delay:{0.9 + i * 0.12}s"><div class="icon">{img_tag(key, title)}</div><h3>{esc(title)}</h3><p>{esc(desc)}</p></div>',
+                f'<div class="feature" style="animation-delay:{0.9 + i * 0.12}s;border-top:5px solid {ACCENTS[key][0]}"><div class="icon">{feature_icon(key, title)}</div><h3>{esc(title)}</h3><p>{esc(desc)}</p></div>',
                 unsafe_allow_html=True,
             )
             st.button(f"Open {title}  →", on_click=go, args=(key,), key=f"nav_{key}")
+    st.markdown(
+        '<div class="home-foot">Live web evidence from TinyFish Search and Fetch · analysis by Groq</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ---------------------------------------------------------------------------
 # PAGE: Company Dossier
 # ---------------------------------------------------------------------------
 def page_dossier():
-    subpage_header("Company Dossier", "A live, one-page profile of any company, built from the open web.")
+    subpage_header("Company Dossier", "A live, one-page profile of any company, built from the open web.", "dossier")
     company = st.text_input("Company name", placeholder="e.g. Razorpay, Swiggy, Zerodha", key="d_company")
 
     if st.button("Generate live dossier", type="primary", key="d_btn"):
@@ -1100,10 +1206,21 @@ Context:
 # PAGE: Posting Verifier
 # ---------------------------------------------------------------------------
 def page_verify():
-    subpage_header("Posting Verifier", "Paste a job posting, offer message or link. We check it against the live web.")
-    b1, b2, _ = st.columns([1.3, 1.3, 3])
-    b1.button("Try a scam posting", on_click=load_sample, args=(SCAM_SAMPLE,), key="s_scam")
-    b2.button("Try a legit company", on_click=load_sample, args=(LEGIT_SAMPLE,), key="s_legit")
+    def samples_box():
+        with st.container(key="samples"):
+            st.markdown(
+                '<div class="samples-title">Sample postings</div>'
+                '<div class="samples-sub">Load an example to see how the verifier works.</div>',
+                unsafe_allow_html=True,
+            )
+            b1, b2 = st.columns(2)
+            b1.button("Scam posting", icon=":material/gpp_bad:", on_click=load_sample, args=(SCAM_SAMPLE,),
+                      key="s_scam", use_container_width=True)
+            b2.button("Legit company", icon=":material/verified_user:", on_click=load_sample, args=(LEGIT_SAMPLE,),
+                      key="s_legit", use_container_width=True)
+
+    subpage_header("Posting Verifier", "Paste a job posting, offer message or link. We check it against the live web.",
+                   "verify", side=samples_box)
 
     v_company = st.text_input("Company name", key="v_company")
     v_url = st.text_input("Job posting URL (optional)", key="v_url")
@@ -1203,7 +1320,7 @@ Live web research:
 # PAGE: Interview Prep
 # ---------------------------------------------------------------------------
 def page_prep():
-    subpage_header("Interview Prep", "Questions and talking points grounded in live company news and your profile.")
+    subpage_header("Interview Prep", "Questions and talking points grounded in live company news and your profile.", "prep")
     if not st.session_state.get("p_company"):
         st.session_state["p_company"] = st.session_state.get("dossier", {}).get("company_name", "")
     p_company = st.text_input("Company", key="p_company")
