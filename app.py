@@ -1,14 +1,17 @@
 import base64
 import html
 import json
+import os
 import re
+import time
+import urllib.parse
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from tinyfish import TinyFish
 
 # ---------------------------------------------------------------------------
@@ -19,8 +22,13 @@ load_dotenv()  # reads TINYFISH_API_KEY and GEMINI_API_KEY from .env
 st.set_page_config(page_title="JobVentra", page_icon="🧭", layout="wide")
 
 tf_client = TinyFish()
-gemini_client = genai.Client()
-MODEL = "gemini-3.8-flash"
+
+# --- LLM settings (all optional, set in .env) ---
+# LLM_PROVIDER=groq|gemini   GROQ_MODEL=a,b   GEMINI_MODEL=a,b
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
+GROQ_MODELS = [m.strip() for m in os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile,llama-3.1-8b-instant").split(",") if m.strip()]
+GEMINI_MODELS = [m.strip() for m in os.getenv("GEMINI_MODEL", "gemini-3.8-flash").split(",") if m.strip()]
+RETRYABLE = {429, 500, 502, 503, 504}
 
 BLUE = "#2F6FED"
 GREEN = "#16A34A"
@@ -33,6 +41,12 @@ if "page" not in st.session_state:
 
 def go(page: str):
     st.session_state["page"] = page
+
+
+def go_prep(company: str):
+    """Open Interview Prep with this company already filled in."""
+    st.session_state["p_company"] = company
+    st.session_state["page"] = "prep"
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +146,57 @@ a { color: #2F6FED; }
 .bd-ev { font-size: .86rem; color: #64748B; line-height: 1.4; }
 .capnote { background: #FFF3DC; color: #92400E; border-radius: 12px; padding: 10px 14px; font-size: .9rem; font-weight: 600; margin-bottom: 14px; }
 
+.q { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #EEF2FA; align-items: flex-start; }
+.q:last-child { border-bottom: none; }
+.q-num { flex: 0 0 26px; height: 26px; border-radius: 50%; background: #E8F0FF; color: #2F6FED; font-weight: 800;
+  font-size: .8rem; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+.q-text { color: #0F172A; font-weight: 600; line-height: 1.45; margin-bottom: 6px; }
+.tag { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .75rem; font-weight: 700; margin-right: 6px; }
+.tag.topic { background: #E8F0FF; color: #2F6FED; }
+.tag.easy { background: #E3F7EA; color: #15803D; }
+.tag.medium { background: #FFF3DC; color: #B45309; }
+.tag.hard { background: #FEE9E9; color: #B91C1C; }
+.chip.amber { background: #FFF3DC; color: #B45309; }
+.bar.big { height: 12px; }
+
+.rounds { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 22px; margin-bottom: 8px; }
+.round { position: relative; background: #F4F7FF; border: 1px solid #E3EAF8; border-radius: 16px; padding: 14px; }
+.round:not(:last-child)::after { content: "→"; position: absolute; right: -19px; top: 18px; color: #2F6FED; font-weight: 800; }
+.rnum { width: 28px; height: 28px; border-radius: 50%; background: #2F6FED; color: #fff; font-weight: 800; font-size: .85rem;
+  display: flex; align-items: center; justify-content: center; margin-bottom: 8px; }
+.rname { font-weight: 800; color: #0F172A; margin-bottom: 8px; }
+.rnote { font-size: .84rem; color: #64748B; line-height: 1.4; margin-top: 4px; }
+.tips { margin-top: 14px; }
+.tips b { color: #0F172A; font-size: .95rem; }
+
+.tldr { font-size: 1.08rem; color: #475569; line-height: 1.5; margin: -2px 0 16px; max-width: 820px; }
+.timeline .when { color: #2F6FED; font-weight: 800; font-size: .8rem; margin-right: 8px; }
+
+/* ---------- Colour accents ---------- */
+.card.accent-blue,   .tile.accent-blue   { border-top: 4px solid #2F6FED; }
+.card.accent-teal,   .tile.accent-teal   { border-top: 4px solid #3AA6D9; }
+.card.accent-green,  .tile.accent-green  { border-top: 4px solid #34C38F; }
+.card.accent-amber,  .tile.accent-amber  { border-top: 4px solid #F59E0B; }
+.card.accent-violet, .tile.accent-violet { border-top: 4px solid #8B5CF6; }
+.card.accent-slate,  .tile.accent-slate  { border-top: 4px solid #94A3B8; }
+
+.co-head {
+  background: linear-gradient(135deg, #EAF1FF 0%, #E6F7F1 100%); border: 1px solid #DCE7FB;
+  border-left: 6px solid #2F6FED; border-radius: 20px; padding: 22px 26px; margin-bottom: 16px;
+}
+.co-name { font-size: 2.1rem; font-weight: 800; color: #0F172A; letter-spacing: -.02em; line-height: 1.15; }
+.co-tldr { margin-top: 6px; color: #475569; font-size: 1.05rem; line-height: 1.5; max-width: 820px; }
+
+/* ---------- Pill tabs ---------- */
+.stTabs [data-baseweb="tab-list"] { gap: 8px; border-bottom: none; }
+.stTabs [data-baseweb="tab-highlight"], .stTabs [data-baseweb="tab-border"] { display: none; }
+.stTabs [data-baseweb="tab"] {
+  background: #fff; border: 1px solid #E3EAF8; border-radius: 999px; padding: 8px 18px; height: auto;
+}
+.stTabs [data-baseweb="tab"] p { font-weight: 700; color: #334155; }
+.stTabs [data-baseweb="tab"][aria-selected="true"] { background: #2F6FED; border-color: #2F6FED; }
+.stTabs [data-baseweb="tab"][aria-selected="true"] p { color: #fff; }
+
 /* ---------- Motion ---------- */
 @keyframes fadeUp   { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
 @keyframes fadeDown { from { opacity: 0; transform: translateY(-18px) scale(.985); } to { opacity: 1; transform: none; } }
@@ -193,8 +258,9 @@ def img_tag(name: str, alt: str = "") -> str:
     return f'<div class="ph">{esc(alt[:1].upper())}</div>'
 
 
-def card(title: str, body_html: str) -> str:
-    return f'<div class="card"><h4>{esc(title)}</h4>{body_html}</div>'
+def card(title: str, body_html: str, accent: str = "") -> str:
+    cls = f"card accent-{accent}" if accent else "card"
+    return f'<div class="{cls}"><h4>{esc(title)}</h4>{body_html}</div>'
 
 
 def ul(items: list[str]) -> str:
@@ -209,8 +275,9 @@ def chips(items: list[str], kind: str = "blue") -> str:
     return "".join(f'<span class="chip {kind}">{esc(i)}</span>' for i in items)
 
 
-def tile(label: str, value: str) -> str:
-    return f'<div class="tile"><div class="label">{esc(label)}</div><div class="value">{esc(value)}</div></div>'
+def tile(label: str, value: str, accent: str = "") -> str:
+    cls = f"tile accent-{accent}" if accent else "tile"
+    return f'<div class="{cls}"><div class="label">{esc(label)}</div><div class="value">{esc(value)}</div></div>'
 
 
 def sources_html(urls: list[str]) -> str:
@@ -223,6 +290,83 @@ def sources_html(urls: list[str]) -> str:
 
 def timeline_html(steps: list[str]) -> str:
     return '<div class="timeline">' + "".join(f'<div class="step">{esc(s)}</div>' for s in steps) + "</div>"
+
+
+def real(items) -> list[str]:
+    """Drop empty or placeholder entries so counts and cards reflect real content."""
+    if isinstance(items, str):
+        items = [items]
+    return [str(i).strip() for i in (items or []) if str(i).strip() and "not found" not in str(i).lower()]
+
+
+def txt(x) -> str:
+    r_ = real(x)
+    return r_[0] if r_ else ""
+
+
+def news_html(items: list[dict]) -> str:
+    if not items:
+        return "<p>Nothing found in the pages we could read.</p>"
+    return '<div class="timeline">' + "".join(
+        f'<div class="step">' + (f'<span class="when">{esc(n["date"])}</span>' if n["date"] else "") + esc(n["headline"]) + "</div>"
+        for n in items
+    ) + "</div>"
+
+
+def _diff_class(d: str) -> str:
+    d = str(d).strip().lower()
+    return "easy" if d.startswith("e") else "hard" if d.startswith("h") else "medium"
+
+
+def q_html(qs) -> str:
+    """Questions as numbered rows with a topic tag and a difficulty tag."""
+    rows = ""
+    for i, q in enumerate(qs or [], 1):
+        if isinstance(q, str):
+            q = {"question": q, "topic": "", "difficulty": "Medium"}
+        text = str(q.get("question", "")).strip()
+        if not text:
+            continue
+        topic = str(q.get("topic", "")).strip()
+        diff = str(q.get("difficulty", "Medium")).strip().title() or "Medium"
+        tags = (f'<span class="tag topic">{esc(topic)}</span>' if topic else "") + \
+               f'<span class="tag {_diff_class(diff)}">{esc(diff)}</span>'
+        rows += f'<div class="q"><span class="q-num">{i}</span><div><div class="q-text">{esc(text)}</div>{tags}</div></div>'
+    return rows or "<p>Nothing found.</p>"
+
+
+ROUND_COLORS = ["#2F6FED", "#3AA6D9", "#34C38F", "#F59E0B", "#8B5CF6"]
+
+
+def rounds_html(rounds: list[dict], tips: list[str]) -> str:
+    if not rounds and not tips:
+        return "<p>Nothing found in the pages we could read.</p>"
+    out = ""
+    if rounds:
+        out += '<div class="rounds">'
+        for i, r_ in enumerate(rounds, 1):
+            topics = "".join(f'<span class="chip blue">{esc(t)}</span>' for t in r_["topics"])
+            note = f'<div class="rnote">{esc(r_["notes"])}</div>' if r_["notes"] else ""
+            col_ = ROUND_COLORS[(i - 1) % len(ROUND_COLORS)]
+            out += (f'<div class="round"><div class="rnum" style="background:{col_}">{i}</div><div class="rname">{esc(r_["name"])}</div>'
+                    f'<div>{topics}</div>{note}</div>')
+        out += "</div>"
+    if tips:
+        out += '<div class="tips"><b>Tips</b>' + ul(tips) + "</div>"
+    return out
+
+
+def match_html(matched: list[str], missing: list[str]) -> str:
+    if not matched and not missing:
+        return "<p>Upload a resume on the form above to see how your skills match this role.</p>"
+    total = len(matched) + len(missing)
+    pct = round(100 * len(matched) / total) if total else 0
+    return (
+        f'<div class="bd-top"><span>Skills covered</span><span>{len(matched)} of {total}</span></div>'
+        f'<div class="bar big"><div class="fill" style="width:{pct}%;background:{score_color(pct)}"></div></div>'
+        '<h4 style="margin-top:16px">You have</h4>' + chips(matched, "green") +
+        '<h4 style="margin-top:12px">To work on</h4>' + chips(missing, "amber")
+    )
 
 
 def breakdown_html(parts: list[dict]) -> str:
@@ -267,14 +411,31 @@ def gauge_svg(score: int) -> str:
 # ---------------------------------------------------------------------------
 # Schemas for structured Gemini output
 # ---------------------------------------------------------------------------
+class NewsItem(BaseModel):
+    date: str = Field(description="e.g. 'Oct 2026' or '2025'; empty string if unknown")
+    headline: str = Field(description="One short sentence")
+
+
+class Round(BaseModel):
+    name: str = Field(description="e.g. Online Assessment, DSA Round, System Design, Hiring Manager, HR")
+    topics: list[str] = Field(description="2-4 short topics asked in this round")
+    notes: str = Field(description="One line on difficulty or tips; add '(one user report)' if from a single source")
+
+
 class CompanyDossier(BaseModel):
     company_name: str
-    summary: str
-    tech_stack: list[str] = Field(description="Technologies, languages, frameworks used")
-    recent_news: list[str] = Field(description="2-4 recent updates or news items")
-    hiring_trends: str = Field(description="Active roles or hiring focus areas")
-    interview_experiences: str = Field(description="What candidates report about the interview process")
-    estimated_salary_range: str = Field(description="Rough CTC / salary estimates found")
+    tldr: str = Field(description="One or two sentences: what the company is, in plain words")
+    founded: str = Field(description="Year founded; empty string if unknown")
+    headquarters: str = Field(description="City and country; empty string if unknown")
+    employees: str = Field(description="Approximate headcount with year if known; empty string if unknown")
+    funding: str = Field(description="Funding or listing status in one short phrase; empty string if unknown")
+    summary: str = Field(description="3-4 sentences: what the company does, scale, main products")
+    tech_stack: list[str] = Field(description="Concrete technologies named in the sources; empty list if none")
+    recent_news: list[NewsItem] = Field(description="Up to 4 recent items, newest first; empty list if none")
+    hiring_trends: str = Field(description="Active roles or hiring focus; empty string if unknown")
+    interview_rounds: list[Round] = Field(description="The interview process as 2-5 ordered rounds; empty list if unknown")
+    interview_tips: list[str] = Field(description="Up to 3 short, high-confidence tips; empty list if none")
+    estimated_salary_range: str = Field(description="Salary or CTC ranges with source if possible; empty string if unknown")
 
 
 class TrustReport(BaseModel):
@@ -291,14 +452,21 @@ class TrustReport(BaseModel):
     reasoning: str = Field(description="Short overall explanation referencing the evidence")
 
 
+class Question(BaseModel):
+    question: str = Field(description="One clear sentence")
+    topic: str = Field(description="Short tag, e.g. DSA, System Design, SQL, OOP, Leadership, Teamwork, Product")
+    difficulty: str = Field(description="Easy, Medium or Hard")
+
+
 class InterviewPrep(BaseModel):
-    technical_questions: list[str]
-    behavioral_questions: list[str]
-    company_specific_questions: list[str] = Field(
+    technical_questions: list[Question]
+    behavioral_questions: list[Question]
+    company_specific_questions: list[Question] = Field(
         description="Questions grounded in the company's recent news or products"
     )
-    talking_points: list[str] = Field(description="Points the student should weave into answers")
-    skill_gaps: list[str] = Field(description="Gaps between the student's profile and the role")
+    talking_points: list[str] = Field(description="Up to 5 one-line points the student should weave into answers")
+    skills_matched: list[str] = Field(description="Skills from the student's resume that fit this role; empty if no resume")
+    skills_missing: list[str] = Field(description="Skills this role needs that the resume lacks")
 
 
 # ---------------------------------------------------------------------------
@@ -309,15 +477,26 @@ def tf_search(query: str, limit: int = 4) -> list:
     return list(resp.results[:limit])
 
 
+def tf_fetch_items(urls: list[str], chars_per_page: int = 2500, min_chars: int = 300) -> list[dict]:
+    """Fetch pages as markdown. Drops pages with too little readable text (video pages, login walls)."""
+    items = []
+    for start in range(0, len(urls), 10):  # TinyFish accepts at most 10 URLs per call
+        resp = tf_client.fetch.get_contents(urls=urls[start:start + 10], format="markdown")
+        for item in resp.results:
+            text = (item.text or "").strip()
+            if len(text) >= min_chars:
+                items.append({"url": item.url, "title": item.title or item.url, "text": text[:chars_per_page]})
+    return items
+
+
+def items_to_context(items: list[dict]) -> str:
+    return "\n".join(
+        f"\n--- Source {i + 1}: {it['title']} ({it['url']}) ---\n{it['text']}" for i, it in enumerate(items)
+    )
+
+
 def tf_fetch(urls: list[str], chars_per_page: int = 2500) -> str:
-    if not urls:
-        return ""
-    resp = tf_client.fetch.get_contents(urls=urls, format="markdown")
-    parts = []
-    for i, item in enumerate(resp.results):
-        text = (item.text or "")[:chars_per_page]
-        parts.append(f"\n--- Source {i + 1}: {item.title} ({item.url}) ---\n{text}")
-    return "\n".join(parts)
+    return items_to_context(tf_fetch_items(urls, chars_per_page))
 
 
 def domain_of(url: str) -> str:
@@ -330,30 +509,292 @@ def log(steps: list[str], msg: str):
     st.write("• " + msg)
 
 
-def research(query: str, steps: list[str], limit: int = 3) -> tuple[str, list[str]]:
-    """Search then Fetch, logging each action to the timeline."""
-    log(steps, f'TinyFish Search: "{query[:70]}"')
-    results = tf_search(query, limit)
-    urls = [r.url for r in results]
-    log(steps, f"Found {len(urls)} pages: " + ", ".join(domain_of(u) for u in urls))
+# Pages that rarely give readable text (video, social) are skipped.
+BLOCKED_DOMAINS = (
+    "youtube.com", "youtu.be", "facebook.com", "instagram.com", "twitter.com", "x.com",
+    "tiktok.com", "pinterest.com", "snapchat.com",
+)
+LOW_PRIORITY = ("linkedin.com", "quora.com", "glassdoor.com", "fishbowlapp.com")
+
+REDDIT_UA = "Mozilla/5.0 (compatible; JobVentra/1.0; student hackathon project)"
+
+
+_reddit_status = {"err": ""}
+
+
+def _reddit_get(url: str):
+    last = None
+    for u in (url, url.replace("://www.reddit.com", "://old.reddit.com")):
+        try:
+            req = urllib.request.Request(u, headers={"User-Agent": REDDIT_UA, "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                return json.loads(r.read().decode("utf-8", "ignore"))
+        except Exception as e:  # blocked, rate limited, offline...
+            last = e
+    _reddit_status["err"] = f"HTTP {getattr(last, 'code', '')}".strip() if hasattr(last, "code") else type(last).__name__
+    raise last
+
+
+def _reddit_norm(url: str) -> str:
+    return re.sub(r"^https?://[^/]*reddit\.com", "https://www.reddit.com", re.split(r"[?#]", url)[0]).rstrip("/")
+
+
+def reddit_search(q: str, n: int = 3) -> list[str]:
+    """Find the most upvoted / discussed Reddit threads for a query."""
+    try:
+        data = _reddit_get(
+            "https://www.reddit.com/search.json?"
+            + urllib.parse.urlencode({"q": q, "sort": "relevance", "t": "all", "limit": 10, "raw_json": 1})
+        )
+        posts = [c["data"] for c in data["data"]["children"] if c.get("kind") == "t3"]
+    except Exception:
+        return []
+    posts = [p_ for p_ in posts if p_.get("score", 0) >= 3 or p_.get("num_comments", 0) >= 5]
+    posts.sort(key=lambda p_: p_.get("score", 0) + 2 * p_.get("num_comments", 0), reverse=True)
+    return ["https://www.reddit.com" + p_["permalink"] for p_ in posts[:n]]
+
+
+def reddit_thread_text(url: str) -> str | None:
+    """Return a thread as text with upvote scores, keeping only well-upvoted comments."""
+    if "/comments/" not in url:
+        return None
+    try:
+        data = _reddit_get(
+            _reddit_norm(url) + ".json?" + urllib.parse.urlencode({"sort": "top", "limit": 15, "raw_json": 1})
+        )
+        post = data[0]["data"]["children"][0]["data"]
+        comments = [c["data"] for c in data[1]["data"]["children"] if c.get("kind") == "t1" and c["data"].get("body")]
+    except Exception:
+        return None
+    comments.sort(key=lambda c: c.get("score", 0), reverse=True)
+    strong = [c for c in comments if c.get("score", 0) >= 2] or comments[:3]
+    lines = [
+        f"[Reddit r/{post.get('subreddit', '?')}, thread score +{post.get('score', 0)}, "
+        f"{post.get('num_comments', 0)} comments] {post.get('title', '')}",
+        f"Post: {(post.get('selftext') or '')[:800]}",
+        "Top comments:",
+    ]
+    for c in strong[:6]:
+        lines.append(f"  [+{c.get('score', 0)}] {re.sub(chr(10) + '+', ' ', c['body'])[:450]}")
+    return "\n".join(lines)
+
+
+def _safe_search(q: str, limit: int) -> list:
+    try:
+        return tf_search(q, limit)
+    except Exception:
+        return []
+
+
+def research(queries, steps: list[str], limit: int = 8, reddit_query: str | None = None) -> tuple[str, list[str]]:
+    """Run several focused TinyFish searches, read the best distinct pages, and add
+    upvote-scored Reddit discussion. Returns (context text, source urls actually read)."""
+    if isinstance(queries, str):
+        queries = [queries]
+    log(steps, f"TinyFish Search: {len(queries)} focused queries")
+    with ThreadPoolExecutor(max_workers=min(7, len(queries))) as pool:
+        batches = list(pool.map(lambda q: _safe_search(q, 4), queries))
+
+    good, low, reddit_urls, seen_domains = [], [], [], {}
+    for batch in batches:
+        for r in batch:
+            dom = domain_of(r.url)
+            if any(dom == b or dom.endswith("." + b) for b in BLOCKED_DOMAINS):
+                continue
+            if dom.endswith("reddit.com"):
+                reddit_urls.append(r.url)
+                continue
+            if seen_domains.get(dom, 0) >= 2:
+                continue
+            seen_domains[dom] = seen_domains.get(dom, 0) + 1
+            (low if any(dom.endswith(l) for l in LOW_PRIORITY) else good).append(r.url)
+
+    if reddit_query:
+        reddit_urls = reddit_search(reddit_query) + reddit_urls
+    seen_ids, threads, thread_urls, fallback = set(), [], [], []
+    for u in reddit_urls:
+        m = re.search(r"/comments/(\w+)", u)
+        key = m.group(1) if m else u
+        if key in seen_ids or len(seen_ids) >= 4:
+            continue
+        seen_ids.add(key)
+        text = reddit_thread_text(u)
+        if text:
+            threads.append(text)
+            thread_urls.append(_reddit_norm(u))
+        else:
+            fallback.append(u)
+    if threads:
+        log(steps, f"Reddit: read {len(threads)} thread(s) with upvote scores")
+    elif reddit_urls:
+        why = f" ({_reddit_status['err']})" if _reddit_status["err"] else ""
+        log(steps, f"Reddit: upvote scores unavailable{why}, reading thread text instead")
+
+    urls = list(dict.fromkeys(fallback[:3] + (good + low[:2])[:limit]))[:10]
+    log(steps, f"Picked {len(urls)} web pages: " + ", ".join(dict.fromkeys(domain_of(u) for u in urls)))
     log(steps, "TinyFish Fetch: reading pages as clean markdown")
-    return tf_fetch(urls), urls
+    items = tf_fetch_items(urls)
+    skipped = len(urls) - len(items)
+    if skipped:
+        log(steps, f"Skipped {skipped} page(s) with no readable text")
+
+    context = items_to_context(items)
+    if threads:
+        context += (
+            "\n\n--- COMMUNITY DISCUSSION (Reddit). [+N] is the upvote count; higher means more community "
+            "agreement ---\n" + "\n\n".join(threads)[:7000]
+        )
+    return context, [it["url"] for it in items] + thread_urls
 
 
 # ---------------------------------------------------------------------------
 # Gemini helper
 # ---------------------------------------------------------------------------
-def gemini_structured(prompt: str, schema: type[BaseModel]) -> dict:
-    resp = gemini_client.models.generate_content(
-        model=MODEL,
+_clients: dict = {}
+
+
+def _call_groq(model: str, prompt: str, schema: type[BaseModel]) -> str:
+    if "groq" not in _clients:
+        from groq import Groq
+
+        _clients["groq"] = Groq()  # reads GROQ_API_KEY from the environment
+    resp = _clients["groq"].chat.completions.create(
+        model=model,
+        temperature=0.2,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": "You are a careful analyst. Reply with one valid JSON object and nothing else."},
+            {
+                "role": "user",
+                "content": prompt + "\n\nReturn ONLY a JSON object that matches this JSON schema:\n"
+                + json.dumps(schema.model_json_schema()),
+            },
+        ],
+    )
+    return resp.choices[0].message.content
+
+
+def _call_gemini(model: str, prompt: str, schema: type[BaseModel]) -> str:
+    from google import genai
+    from google.genai import types
+
+    if "gemini" not in _clients:
+        _clients["gemini"] = genai.Client()  # reads GEMINI_API_KEY
+    resp = _clients["gemini"].models.generate_content(
+        model=model,
         contents=prompt,
         config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=0.2,
+            response_mime_type="application/json", response_schema=schema, temperature=0.2
         ),
     )
-    return json.loads(resp.text)
+    return resp.text
+
+
+def _plans() -> list[tuple[str, list[str], object]]:
+    """Provider order: the chosen one first, then the other if its API key exists."""
+    plans = {
+        "groq": ("groq", GROQ_MODELS, _call_groq, bool(os.getenv("GROQ_API_KEY"))),
+        "gemini": ("gemini", GEMINI_MODELS, _call_gemini, bool(os.getenv("GEMINI_API_KEY"))),
+    }
+    order = [LLM_PROVIDER] + [k for k in plans if k != LLM_PROVIDER]
+    return [(n, m, fn) for k in order if k in plans for (n, m, fn, has_key) in [plans[k]] if has_key or k == LLM_PROVIDER]
+
+
+def _code(e: Exception):
+    return getattr(e, "status_code", None) or getattr(e, "code", None)
+
+
+def _wait_for(e: Exception, attempt: int) -> int:
+    try:
+        ra = float(e.response.headers.get("retry-after"))  # Groq sends this on 429
+        return int(min(max(ra, 1), 20))
+    except Exception:
+        return 2 ** (attempt + 1)
+
+
+def _short(e: Exception) -> str:
+    msg = getattr(e, "message", None) or str(e)
+    return re.sub(r"\s+", " ", str(msg))[:160]
+
+
+def _discover_groq(exclude: list[str]) -> list[str]:
+    """Ask Groq which chat models this key can use, preferring large general ones."""
+    try:
+        if "groq" not in _clients:
+            from groq import Groq
+
+            _clients["groq"] = Groq()
+        ids = [m.id for m in _clients["groq"].models.list().data]
+    except Exception:
+        return []
+    skip = ("whisper", "guard", "tts", "orpheus", "embed", "playai", "distil")
+    ids = [i for i in ids if i not in exclude and not any(k in i.lower() for k in skip)]
+    ids.sort(key=lambda i: (not any(k in i.lower() for k in ("70b", "120b", "versatile", "scout", "maverick")), i))
+    return ids[:3]
+
+
+def llm_structured(prompt: str, schema: type[BaseModel], status=None) -> dict:
+    """Ask the LLM for JSON matching `schema`. Retries busy errors with backoff,
+    fixes malformed JSON once, then falls back to the next model or provider."""
+    last_err: Exception | None = None
+    for provider, models, call in _plans():
+        models, dead, discovered, i = list(models), set(), False, 0
+        while i < len(models):
+            model = models[i]
+            i += 1
+            for attempt in range(4):
+                try:
+                    raw = call(model, prompt, schema)
+                    try:
+                        return schema.model_validate_json(raw).model_dump()
+                    except ValidationError:
+                        raw = call(model, prompt + "\n\nYour previous JSON was invalid. Return corrected JSON only.", schema)
+                        return schema.model_validate_json(raw).model_dump()
+                except ValidationError as e:
+                    last_err = e
+                    if status is not None:
+                        st.write(f"• {model} returned badly formatted output")
+                    break
+                except Exception as e:
+                    last_err = e
+                    code = _code(e)
+                    name = type(e).__name__
+                    if code in (400, 404):
+                        dead.add(model)
+                        if status is not None:
+                            st.write(f"• {model} unavailable ({code}): {_short(e)}")
+                        break
+                    if code in (401, 403) or (code is None and "Connection" not in name and "Timeout" not in name):
+                        raise
+                    if attempt < 3:
+                        wait = _wait_for(e, attempt)
+                        if status is not None:
+                            st.write(f"• {model} is busy ({code or 'network'}), retrying in {wait}s...")
+                        time.sleep(wait)
+                    elif status is not None:
+                        st.write(f"• {model} stayed busy, moving on...")
+            if provider == "groq" and not discovered and i == len(models) and len(dead) == len(models):
+                discovered = True
+                extra = _discover_groq(models)
+                if extra and status is not None:
+                    st.write("• Looking up models your Groq key can use: " + ", ".join(extra))
+                models += extra
+    if last_err is None:
+        raise RuntimeError("No AI provider is configured. Add GROQ_API_KEY to your .env file.")
+    raise last_err
+
+
+def friendly_error(e: Exception) -> str:
+    code = _code(e)
+    if code in RETRYABLE:
+        return "The AI service is busy or rate limited. Wait about a minute and press the button again."
+    if code in (401, 403):
+        return "The AI provider rejected the API key. Check GROQ_API_KEY in your .env file."
+    if isinstance(e, ValidationError):
+        return "The AI returned an answer in the wrong format. Please press the button again."
+    if isinstance(e, ModuleNotFoundError):
+        return f"A package is missing: {e}. Run: pip install groq"
+    return f"Something went wrong: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -535,58 +976,124 @@ def page_dossier():
             try:
                 with st.status("Agent is researching the live web...", expanded=True) as status:
                     context, urls = research(
-                        f"{company} company tech stack recent news hiring salary interview experience", steps
+                        [
+                            f"{company} company overview wikipedia",
+                            f"{company} latest news",
+                            f"{company} careers hiring roles",
+                            f"{company} tech stack engineering blog stackshare",
+                            f"{company} interview experience questions DSA rounds",
+                            f"{company} salary CTC SDE",
+                            f"{company} headquarters founded employees funding",
+                            f"{company} interview experience reddit",
+                        ],
+                        steps,
+                        reddit_query=f"{company} interview experience",
                     )
-                    log(steps, "Gemini: turning raw pages into a structured dossier")
-                    prompt = f"""You are a placement intelligence analyst. Using ONLY the live web context
-below, produce a one-page dossier on '{company}' for a student preparing for placements.
-If something is not in the context, say 'Not found in sources' rather than guessing.
+                    log(steps, "AI analysis: cross-checking sources into a structured dossier")
+                    prompt = f"""You are a placement intelligence analyst. Using ONLY the context below, build a useful
+dossier on '{company}' for a student preparing for placements.
 
-Live web context:
+Rules:
+- tldr: one or two plain sentences saying what the company is.
+- founded, headquarters, employees, funding: short facts from the sources; empty string if not stated.
+- summary: 3-4 informative sentences (what it does, scale, main products) from the sources.
+- tech_stack: concrete technologies named in the sources (languages, frameworks, cloud, data tools).
+- interview_rounds: the interview process as 2-5 ordered rounds. For each: a name, 2-4 short topics asked
+  (DSA, system design, CS fundamentals...), and a one-line note on difficulty or tips. Trust points confirmed by
+  two or more sources, or by comments with many upvotes (shown as [+N]). Label single-source claims
+  "(one user report)". Ignore jokes, rants and unverifiable claims.
+- interview_tips: up to 3 short tips that several sources agree on.
+- recent_news: up to 4 items, newest first, each with a date (month and year if possible) and a short headline.
+- salary: ranges and where they came from.
+- If something truly is not in the context, use an empty list or empty string. Never write "Not found".
+
+Context:
 {context}"""
-                    dossier = gemini_structured(prompt, CompanyDossier)
+                    dossier = llm_structured(prompt, CompanyDossier, status)
                     status.update(label="Dossier complete", state="complete", expanded=False)
                 st.session_state["dossier"] = dossier
                 st.session_state["dossier_urls"] = urls
                 st.session_state["dossier_steps"] = steps
             except Exception as e:
-                st.error(f"Something went wrong: {e}")
+                st.error(friendly_error(e))
 
     d = st.session_state.get("dossier")
     if d:
-        st.markdown(f"### {esc(d['company_name'])}")
-        t1, t2, t3 = st.columns(3)
-        t1.markdown(tile("Salary range", d["estimated_salary_range"]), unsafe_allow_html=True)
-        t2.markdown(tile("Tech stack size", f"{len(d['tech_stack'])} technologies"), unsafe_allow_html=True)
-        t3.markdown(tile("News items", f"{len(d['recent_news'])} recent updates"), unsafe_allow_html=True)
-        st.write("")
+        d = dict(d)
+        for k in ("tech_stack", "interview_tips"):
+            d[k] = real(d.get(k))
+        for k in ("summary", "tldr", "hiring_trends", "estimated_salary_range", "founded", "headquarters", "employees", "funding"):
+            d[k] = txt(d.get(k))
+        if not d["tldr"] and d["summary"]:
+            d["tldr"] = re.split(r"(?<=[.!?])\s", d["summary"])[0][:200]
+        news = []
+        for n_ in d.get("recent_news") or []:
+            if isinstance(n_, str):  # older saved result
+                n_ = {"date": "", "headline": n_}
+            if txt(n_.get("headline")):
+                news.append({"date": txt(n_.get("date")), "headline": txt(n_.get("headline"))})
+        d["recent_news"] = news
+        rounds = []
+        for r_ in d.get("interview_rounds") or []:
+            if isinstance(r_, dict) and txt(r_.get("name")):
+                rounds.append({"name": txt(r_.get("name")), "topics": real(r_.get("topics")), "notes": txt(r_.get("notes"))})
+        d["interview_rounds"] = rounds
+        if not rounds and not d["interview_tips"] and d.get("interview_experiences"):  # older saved result
+            d["interview_tips"] = real(d["interview_experiences"])
 
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            st.markdown(card("Overview", f"<p>{esc(d['summary'])}</p>"), unsafe_allow_html=True)
-            st.markdown(card("Recent news", ul(d["recent_news"])), unsafe_allow_html=True)
-            st.markdown(card("Hiring focus", f"<p>{esc(d['hiring_trends'])}</p>"), unsafe_allow_html=True)
-            st.markdown(
-                card("Interview experiences", f"<p>{esc(d['interview_experiences'])}</p>"), unsafe_allow_html=True
-            )
-        with c2:
-            st.markdown(card("Tech stack", chips(d["tech_stack"], "blue")), unsafe_allow_html=True)
-            st.markdown(
-                card("How the agent got this", timeline_html(st.session_state.get("dossier_steps", []))),
-                unsafe_allow_html=True,
-            )
-            st.markdown(card("Sources", sources_html(st.session_state.get("dossier_urls", []))), unsafe_allow_html=True)
+        name = d["company_name"]
+        urls = st.session_state.get("dossier_urls", [])
+        none_msg = "Nothing found in the pages we could read."
 
-        md = (
-            f"# {d['company_name']} - JobVentra Dossier\n\n{d['summary']}\n\n"
-            "## Recent news\n" + "\n".join(f"- {n}" for n in d["recent_news"]) +
-            f"\n\n## Hiring focus\n{d['hiring_trends']}\n\n"
-            f"## Interview experiences\n{d['interview_experiences']}\n\n"
-            f"## Tech stack\n{', '.join(d['tech_stack'])}\n\n"
-            f"## Salary range\n{d['estimated_salary_range']}\n\n"
-            "## Sources\n" + "\n".join(f"- {u}" for u in st.session_state.get("dossier_urls", []))
+        st.markdown(
+            f'<div class="co-head"><div class="co-name">{esc(name)}</div>'
+            + (f'<div class="co-tldr">{esc(d["tldr"])}</div>' if d["tldr"] else "")
+            + "</div>",
+            unsafe_allow_html=True,
         )
-        st.download_button("Download dossier (.md)", md, file_name="dossier.md")
+        if len(urls) < 3:
+            st.info(f"Only {len(urls)} readable source(s) were found, so some sections may be thin. "
+                    "Try the company's full name, for example 'Swiggy Limited'.")
+
+        facts = [(l_, v_) for l_, v_ in (("Founded", d["founded"]), ("Headquarters", d["headquarters"]),
+                                          ("Employees", d["employees"]), ("Funding", d["funding"])) if v_]
+        if facts:
+            for col, (l_, v_), ac in zip(st.columns(len(facts)), facts, ["blue", "teal", "green", "amber"]):
+                col.markdown(tile(l_, v_, ac), unsafe_allow_html=True)
+            st.write("")
+
+        t_over, t_int, t_tech, t_sal, t_src = st.tabs(
+            [":material/apartment: Overview", ":material/groups: Interview", ":material/code: Tech & hiring",
+             ":material/payments: Salary", ":material/link: Sources"]
+        )
+        with t_over:
+            st.markdown(card("About", f"<p>{esc(d['summary'] or none_msg)}</p>", "blue"), unsafe_allow_html=True)
+            st.markdown(card("Recent news", news_html(d["recent_news"]), "teal"), unsafe_allow_html=True)
+        with t_int:
+            st.markdown(card("Interview process", rounds_html(d["interview_rounds"], d["interview_tips"]), "green"), unsafe_allow_html=True)
+            st.button("Prepare for this company  \u2192", type="primary", on_click=go_prep, args=(name,), key="to_prep")
+        with t_tech:
+            st.markdown(card("Tech stack", chips(d["tech_stack"], "blue"), "violet"), unsafe_allow_html=True)
+            st.markdown(card("Hiring focus", f"<p>{esc(d['hiring_trends'] or none_msg)}</p>", "amber"), unsafe_allow_html=True)
+        with t_sal:
+            st.markdown(card("Salary & compensation", f"<p>{esc(d['estimated_salary_range'] or none_msg)}</p>", "green"), unsafe_allow_html=True)
+            st.caption("Salary figures come from public posts and can be out of date. Treat them as rough ranges.")
+        with t_src:
+            st.markdown(card("Sources", sources_html(urls), "slate"), unsafe_allow_html=True)
+            st.markdown(card("How the agent got this", timeline_html(st.session_state.get("dossier_steps", [])), "slate"), unsafe_allow_html=True)
+            md = (
+                f"# {name} - JobVentra Dossier\n\n{d['tldr']}\n\n{d['summary']}\n\n"
+                f"Founded: {d['founded']} | HQ: {d['headquarters']} | Employees: {d['employees']} | Funding: {d['funding']}\n\n"
+                "## Recent news\n" + "\n".join(f"- {n['date']} {n['headline']}".strip() for n in d["recent_news"]) + "\n\n"
+                "## Interview process\n"
+                + "\n".join(f"{i}. {r_['name']}: {', '.join(r_['topics'])}. {r_['notes']}" for i, r_ in enumerate(d["interview_rounds"], 1))
+                + "\n" + "\n".join(f"- Tip: {x}" for x in d["interview_tips"]) + "\n\n"
+                f"## Hiring focus\n{d['hiring_trends']}\n\n"
+                f"## Tech stack\n{', '.join(d['tech_stack'])}\n\n"
+                f"## Salary range\n{d['estimated_salary_range']}\n\n"
+                "## Sources\n" + "\n".join(f"- {u}" for u in urls)
+            )
+            st.download_button("Download dossier (.md)", md, file_name="dossier.md")
 
 
 # ---------------------------------------------------------------------------
@@ -618,9 +1125,14 @@ def page_verify():
                     log(steps, f"Rule scan: {len(flags)} red flag pattern(s) found in the posting text")
 
                     name = v_company.strip() or "the company in this job posting"
-                    web_ctx, web_urls = research(f"{name} official website careers reviews scam fraud", steps, limit=4)
+                    web_ctx, web_urls = research(
+                        [f"{name} official website careers", f"{name} reviews scam fraud complaints"],
+                        steps,
+                        limit=6,
+                        reddit_query=f"{name} scam OR fake OR legit",
+                    )
 
-                    log(steps, "Gemini: weighing the evidence into a trust score")
+                    log(steps, "AI analysis: weighing the evidence into a trust score")
                     prompt = f"""You are a recruitment-fraud analyst helping Indian college students.
 Judge this job posting and company by scoring four separate criteria. Do NOT give an
 overall score; the app adds them up.
@@ -644,7 +1156,7 @@ Posting text:
 
 Live web research:
 {web_ctx}"""
-                    report = gemini_structured(prompt, TrustReport)
+                    report = llm_structured(prompt, TrustReport, status)
                     status.update(label="Verification complete", state="complete", expanded=False)
 
                 report["red_flags"] = list(dict.fromkeys(flags + report["red_flags"]))
@@ -653,7 +1165,7 @@ Live web research:
                 st.session_state["report_urls"] = web_urls
                 st.session_state["report_steps"] = steps
             except Exception as e:
-                st.error(f"Something went wrong: {e}")
+                st.error(friendly_error(e))
 
     r = st.session_state.get("report")
     if r:
@@ -692,8 +1204,9 @@ Live web research:
 # ---------------------------------------------------------------------------
 def page_prep():
     subpage_header("Interview Prep", "Questions and talking points grounded in live company news and your profile.")
-    default_company = st.session_state.get("dossier", {}).get("company_name", "")
-    p_company = st.text_input("Company", key="p_company", value=default_company)
+    if not st.session_state.get("p_company"):
+        st.session_state["p_company"] = st.session_state.get("dossier", {}).get("company_name", "")
+    p_company = st.text_input("Company", key="p_company")
     p_role = st.text_input("Role", placeholder="e.g. Backend Engineer Intern", key="p_role")
     resume_file = st.file_uploader("Upload your resume (PDF or TXT, optional)", type=["pdf", "txt"], key="p_resume")
     resume_text = extract_resume(resume_file) if resume_file else ""
@@ -716,43 +1229,66 @@ def page_prep():
             try:
                 with st.status("Preparing grounded interview prep...", expanded=True) as status:
                     ctx, urls = research(
-                        f"{p_company} {p_role} interview questions experience tech stack recent news", steps
+                        [
+                            f"{p_company} {p_role} interview questions",
+                            f"{p_company} interview experience",
+                            f"{p_company} latest news",
+                            f"{p_company} engineering tech stack",
+                            f"{p_company} interview experience reddit",
+                        ],
+                        steps,
+                        reddit_query=f"{p_company} {p_role} interview",
                     )
-                    log(steps, "Gemini: personalising questions to your profile")
+                    log(steps, "AI analysis: personalising questions to your profile")
                     profile_block = (("Resume:\n" + resume_text[:6000] + "\n\n") if resume_text else "") + (
                         p_profile or ("" if resume_text else "Not provided")
                     )
                     prompt = f"""You are an interview coach. Using the live web context and the student's
 profile, create interview prep for the role '{p_role}' at '{p_company}'.
 Ground company-specific questions in the context. Do not fabricate facts about the company.
-If a resume is included, refer to its real projects and skills in the talking points and skill gaps,
-and never invent resume details.
+Reddit comments show upvotes as [+N]; prefer topics repeated across sources or heavily upvoted.
+Give 5 technical, 4 behavioral and 4 company-specific questions, one sentence each, each with a short topic tag
+and a difficulty of Easy, Medium or Hard. Give at most 5 one-line talking points.
+If a resume is included, list in skills_matched the resume skills that fit the role and in skills_missing the
+skills the role needs that the resume lacks, and refer to its real projects in the talking points.
+Never invent resume details. If there is no resume, leave skills_matched empty.
 
 Student profile:
 {profile_block}
 
 Live web context:
 {ctx}"""
-                    prep = gemini_structured(prompt, InterviewPrep)
+                    prep = llm_structured(prompt, InterviewPrep, status)
                     status.update(label="Prep ready", state="complete", expanded=False)
                 st.session_state["prep"] = prep
                 st.session_state["prep_urls"] = urls
             except Exception as e:
-                st.error(f"Something went wrong: {e}")
+                st.error(friendly_error(e))
 
     prep = st.session_state.get("prep")
     if prep:
-        a, b = st.columns(2)
-        with a:
-            st.markdown(card("Technical questions", ul(prep["technical_questions"])), unsafe_allow_html=True)
+        prep = dict(prep)
+        matched, missing = real(prep.get("skills_matched")), real(prep.get("skills_missing"))
+        if not matched and not missing:  # older saved result
+            missing = real(prep.get("skill_gaps"))
+        t_tech, t_beh, t_co, t_talk, t_skill = st.tabs(
+            [":material/code: Technical", ":material/psychology: Behavioral", ":material/apartment: Company-specific",
+             ":material/forum: Talking points", ":material/checklist: Skill match"]
+        )
+        with t_tech:
+            st.markdown(card("Technical questions", q_html(prep.get("technical_questions"))), unsafe_allow_html=True)
+        with t_beh:
+            st.markdown(card("Behavioral questions", q_html(prep.get("behavioral_questions"))), unsafe_allow_html=True)
+        with t_co:
             st.markdown(
-                card("Company-specific questions", ul(prep["company_specific_questions"])), unsafe_allow_html=True
+                card("Company-specific questions", q_html(prep.get("company_specific_questions"))), unsafe_allow_html=True
             )
-            st.markdown(card("Skill gaps to work on", ul(prep["skill_gaps"])), unsafe_allow_html=True)
-        with b:
-            st.markdown(card("Behavioral questions", ul(prep["behavioral_questions"])), unsafe_allow_html=True)
-            st.markdown(card("Talking points", ul(prep["talking_points"])), unsafe_allow_html=True)
-            st.markdown(card("Sources", sources_html(st.session_state.get("prep_urls", []))), unsafe_allow_html=True)
+        with t_talk:
+            st.markdown(card("Talking points", ul(real(prep.get("talking_points")))), unsafe_allow_html=True)
+        with t_skill:
+            st.markdown(card("How your resume fits this role", match_html(matched, missing)), unsafe_allow_html=True)
+        with st.expander("Sources"):
+            st.markdown(sources_html(st.session_state.get("prep_urls", [])), unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
